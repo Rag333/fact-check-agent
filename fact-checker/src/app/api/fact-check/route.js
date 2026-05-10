@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import pdfParse from 'pdf-parse';
 import { OpenAI } from 'openai';
 import { search } from 'duck-duck-scrape';
 
 export const maxDuration = 60; // Set Vercel execution limit to 60s
+export const dynamic = 'force-dynamic'; // Prevent static build-time evaluation of DOM APIs
 
 export async function POST(req) {
   try {
@@ -22,6 +22,7 @@ export async function POST(req) {
     // Read PDF
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    const pdfParse = require('pdf-parse');
     const pdfData = await pdfParse(buffer);
     const text = pdfData.text;
 
