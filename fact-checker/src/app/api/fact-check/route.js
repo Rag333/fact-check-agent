@@ -2,8 +2,21 @@ import { NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 import { search } from 'duck-duck-scrape';
 
-export const maxDuration = 60; // Set Vercel execution limit to 60s
-export const dynamic = 'force-dynamic'; // Prevent static build-time evaluation of DOM APIs
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
+// Extract text from PDF buffer using pdf2json (pure Node.js, no canvas/DOM deps)
+async function extractTextFromPDF(buffer) {
+  const PDFParser = require('pdf2json');
+  return new Promise((resolve, reject) => {
+    const pdfParser = new PDFParser(null, 1);
+    pdfParser.on('pdfParser_dataError', (err) => reject(err.parserError));
+    pdfParser.on('pdfParser_dataReady', () => {
+      resolve(pdfParser.getRawTextContent());
+    });
+    pdfParser.parseBuffer(buffer);
+  });
+}
 
 export async function POST(req) {
   try {
@@ -22,12 +35,9 @@ export async function POST(req) {
     // Read PDF
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const pdfParse = require('pdf-parse');
-    const pdfData = await pdfParse(buffer);
-    const text = pdfData.text;
+    const text = await extractTextFromPDF(buffer);
 
-    // We will use OpenAI client with Gemini API 
-    // via OpenAI compatibility layer (base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    // Use OpenAI client with Gemini API via OpenAI compatibility layer
     const openai = new OpenAI({
       apiKey: geminiKey,
       baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/'
@@ -42,24 +52,23 @@ Return ONLY a JSON array of strings, where each string is a distinct claim. Do n
 Limit to top 5 most important claims to save time.
 
 Text:
-${text.substring(0, 5000)} // Limiting to first 5k characters for speed/context limits
+${text.substring(0, 5000)}
 `;
 
     const extractResponse = await openai.chat.completions.create({
       model: modelName,
       messages: [{ role: 'user', content: extractPrompt }],
-      response_format: { type: 'json_object' } // Ensure valid JSON (if supported, else we parse)
+      response_format: { type: 'json_object' }
     });
 
     let claims = [];
     try {
       let content = extractResponse.choices[0].message.content;
-      // In case the model wrapped it in markdown json block
       content = content.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(content);
       claims = Array.isArray(parsed) ? parsed : (parsed.claims || Object.values(parsed));
     } catch (e) {
-      console.error("Failed to parse claims:", e, extractResponse.choices[0].message.content);
+      console.error('Failed to parse claims:', e);
       return NextResponse.json({ error: 'Failed to extract claims from document.' }, { status: 500 });
     }
 
@@ -67,18 +76,16 @@ ${text.substring(0, 5000)} // Limiting to first 5k characters for speed/context 
     const results = [];
     for (const claim of claims) {
       try {
-        // Search the web for the claim
         const searchResults = await search(claim, { safeSearch: 'moderate' });
 
-        let searchContext = "";
-        let url = "";
+        let searchContext = '';
+        let url = '';
         if (searchResults && searchResults.results && searchResults.results.length > 0) {
-          // Take top 3 results
           const topResults = searchResults.results.slice(0, 3);
           searchContext = topResults.map(r => `Source (${r.url}): ${r.description}`).join('\n\n');
-          url = topResults[0].url; // main source to reference
+          url = topResults[0].url;
         } else {
-          searchContext = "No web search results found for this claim.";
+          searchContext = 'No web search results found for this claim.';
         }
 
         // 3. Evaluate Claim vs Search Context
@@ -113,23 +120,23 @@ Return ONLY a JSON object with the following structure:
           content = content.replace(/```json/g, '').replace(/```/g, '').trim();
           evalResult = JSON.parse(content);
         } catch (e) {
-          evalResult = { status: "Inaccurate", rationale: "Could not parse evaluation." };
+          evalResult = { status: 'Inaccurate', rationale: 'Could not parse evaluation.' };
         }
 
         results.push({
-          claim: claim,
+          claim,
           status: evalResult.status,
           rationale: evalResult.rationale,
-          url: url || "No source found"
+          url: url || 'No source found'
         });
 
       } catch (err) {
-        console.error("Error processing claim:", claim, err);
+        console.error('Error processing claim:', claim, err);
         results.push({
-          claim: claim,
-          status: "Error",
-          rationale: "Failed to verify due to a server error.",
-          url: ""
+          claim,
+          status: 'Error',
+          rationale: 'Failed to verify due to a server error.',
+          url: ''
         });
       }
     }
