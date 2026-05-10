@@ -53,14 +53,14 @@ ${text.substring(0, 5000)} // Limiting to first 5k characters for speed/context 
 
     let claims = [];
     try {
-        let content = extractResponse.choices[0].message.content;
-        // In case the model wrapped it in markdown json block
-        content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(content);
-        claims = Array.isArray(parsed) ? parsed : (parsed.claims || Object.values(parsed));
-    } catch(e) {
-        console.error("Failed to parse claims:", e, extractResponse.choices[0].message.content);
-        return NextResponse.json({ error: 'Failed to extract claims from document.' }, { status: 500 });
+      let content = extractResponse.choices[0].message.content;
+      // In case the model wrapped it in markdown json block
+      content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(content);
+      claims = Array.isArray(parsed) ? parsed : (parsed.claims || Object.values(parsed));
+    } catch (e) {
+      console.error("Failed to parse claims:", e, extractResponse.choices[0].message.content);
+      return NextResponse.json({ error: 'Failed to extract claims from document.' }, { status: 500 });
     }
 
     // 2. Verify Claims via Web Search
@@ -69,16 +69,16 @@ ${text.substring(0, 5000)} // Limiting to first 5k characters for speed/context 
       try {
         // Search the web for the claim
         const searchResults = await search(claim, { safeSearch: 'moderate' });
-        
+
         let searchContext = "";
         let url = "";
         if (searchResults && searchResults.results && searchResults.results.length > 0) {
-            // Take top 3 results
-            const topResults = searchResults.results.slice(0, 3);
-            searchContext = topResults.map(r => `Source (${r.url}): ${r.description}`).join('\n\n');
-            url = topResults[0].url; // main source to reference
+          // Take top 3 results
+          const topResults = searchResults.results.slice(0, 3);
+          searchContext = topResults.map(r => `Source (${r.url}): ${r.description}`).join('\n\n');
+          url = topResults[0].url; // main source to reference
         } else {
-            searchContext = "No web search results found for this claim.";
+          searchContext = "No web search results found for this claim.";
         }
 
         // 3. Evaluate Claim vs Search Context
@@ -102,34 +102,34 @@ Return ONLY a JSON object with the following structure:
 `;
 
         const evalResponse = await openai.chat.completions.create({
-            model: modelName,
-            messages: [{ role: 'user', content: evalPrompt }],
-            response_format: { type: 'json_object' }
+          model: modelName,
+          messages: [{ role: 'user', content: evalPrompt }],
+          response_format: { type: 'json_object' }
         });
 
         let evalResult;
         try {
-            let content = evalResponse.choices[0].message.content;
-            content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-            evalResult = JSON.parse(content);
-        } catch(e) {
-            evalResult = { status: "Inaccurate", rationale: "Could not parse evaluation." };
+          let content = evalResponse.choices[0].message.content;
+          content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+          evalResult = JSON.parse(content);
+        } catch (e) {
+          evalResult = { status: "Inaccurate", rationale: "Could not parse evaluation." };
         }
 
         results.push({
-            claim: claim,
-            status: evalResult.status,
-            rationale: evalResult.rationale,
-            url: url || "No source found"
+          claim: claim,
+          status: evalResult.status,
+          rationale: evalResult.rationale,
+          url: url || "No source found"
         });
 
       } catch (err) {
         console.error("Error processing claim:", claim, err);
         results.push({
-            claim: claim,
-            status: "Error",
-            rationale: "Failed to verify due to a server error.",
-            url: ""
+          claim: claim,
+          status: "Error",
+          rationale: "Failed to verify due to a server error.",
+          url: ""
         });
       }
     }
